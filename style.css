@@ -1,0 +1,237 @@
+/* ============================================================
+   预设提示词移动/复制 — 样式
+   ============================================================ */
+
+/* 提示词条目上的「移动/复制到其他预设」按钮 */
+.pm-preset-transfer-action {
+    cursor: pointer;
+    opacity: 0.6;
+    margin-right: 6px;
+    transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.pm-preset-transfer-action:hover {
+    opacity: 1;
+    transform: scale(1.12);
+}
+
+/* ---------- 弹窗 ---------- */
+
+/* 手机端尽量铺满，桌面端跟随 Popup wide */
+@media (max-width: 720px) {
+    .popup:has(.pmx-popup-title) {
+        width: 96vw !important;
+        max-width: 96vw !important;
+        margin-left: 2vw !important;
+    }
+}
+
+.pmx-popup-title {
+    font-size: 1rem;
+    line-height: 1.5;
+    word-break: break-word;
+}
+
+.pmx-popup-title b {
+    color: var(--SmartThemeQuoteColor, #8ab4f8);
+}
+
+.pmx-section-label {
+    font-size: 0.9rem;
+    opacity: 0.85;
+    margin: 12px 0 6px;
+}
+
+.pmx-hint {
+    font-size: 0.8rem;
+    opacity: 0.6;
+    margin-top: 6px;
+    line-height: 1.4;
+}
+
+/* 目标预设顺序列表（可拖拽） */
+.pmx-position-list {
+    list-style: none;
+    margin: 0;
+    padding: 4px;
+    max-height: 46vh;
+    overflow-y: auto;
+    border: 1px solid rgba(128, 128, 128, 0.35);
+    border-radius: 8px;
+    background: rgba(128, 128, 128, 0.08);
+}
+
+.pmx-orphan-list {
+    max-height: 16vh;
+    opacity: 0.85;
+}
+
+.pmx-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    margin: 2px 0;
+    border-radius: 6px;
+    border: 1px solid transparent;
+    background: rgba(128, 128, 128, 0.1);
+    cursor: default;
+    word-break: break-word;
+}
+
+.pmx-item-name {
+    flex: 1;
+    min-width: 0;
+}
+
+.pmx-item .pmx-handle {
+    cursor: grab;
+    opacity: 0.55;
+    flex-shrink: 0;
+    width: 16px;
+    text-align: center;
+}
+
+.pmx-item .pmx-handle:active {
+    cursor: grabbing;
+}
+
+.pmx-handle-empty {
+    cursor: default;
+}
+
+/* 目标预设里未加入顺序的游离提示词（仅提示，不可拖） */
+.pmx-item.pmx-orphan {
+    opacity: 0.45;
+    font-style: italic;
+}
+
+.pmx-orphan-tag {
+    font-size: 0.72rem;
+    opacity: 0.7;
+    margin-left: 6px;
+    flex-shrink: 0;
+}
+
+/* 「插此」按钮（点击选位，手机友好） */
+.pmx-here {
+    flex-shrink: 0;
+    font-size: 0.72rem;
+    padding: 2px 8px;
+    border-radius: 6px;
+    margin: 0;
+    line-height: 1.5;
+}
+
+/* ---------- 分组标题行（不可拖动，仅作为位置参照与放置目标） ---------- */
+
+.pmx-group-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 8px 0 3px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--SmartThemeBorderColor, rgba(138, 180, 248, 0.4));
+    background: linear-gradient(90deg, rgba(138, 180, 248, 0.18), rgba(138, 180, 248, 0.06));
+    font-weight: 600;
+    user-select: none;
+    word-break: break-word;
+}
+
+.pmx-group-header:first-child {
+    margin-top: 2px;
+}
+
+.pmx-group-icon {
+    color: var(--SmartThemeQuoteColor, #8ab4f8);
+    flex-shrink: 0;
+}
+
+.pmx-group-name {
+    flex: 1;
+    min-width: 0;
+}
+
+.pmx-group-count {
+    flex-shrink: 0;
+    font-size: 0.72rem;
+    font-weight: 400;
+    opacity: 0.75;
+    padding: 0 6px;
+    border-radius: 999px;
+    background: rgba(128, 128, 128, 0.18);
+}
+
+.pmx-group-insert {
+    flex-shrink: 0;
+    font-size: 0.72rem;
+    padding: 2px 8px;
+    border-radius: 6px;
+    margin: 0;
+    line-height: 1.5;
+    white-space: nowrap;
+}
+
+/* 组块结束分隔行（钉死组块边界，不可拖动） */
+.pmx-group-end {
+    height: 0;
+    margin: 0 10px 4px;
+    border-top: 1px dashed rgba(138, 180, 248, 0.32);
+    pointer-events: none;
+}
+
+/* 插入位置锚点行 */
+.pmx-item.pmx-anchor {
+    justify-content: flex-start;
+    font-weight: 600;
+    border: 1px dashed var(--SmartThemeQuoteColor, #8ab4f8);
+    background: rgba(138, 180, 248, 0.14);
+    cursor: default;
+}
+
+.pmx-item.pmx-anchor .pmx-handle {
+    opacity: 0.9;
+}
+
+.pmx-item.pmx-anchor .pmx-anchor-icon {
+    color: var(--SmartThemeQuoteColor, #8ab4f8);
+}
+
+.pmx-anchor-group {
+    flex-shrink: 0;
+    font-size: 0.72rem;
+    font-weight: 400;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: rgba(138, 180, 248, 0.22);
+}
+
+/* sortable 拖拽状态 */
+.pmx-position-list .ui-sortable-helper {
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+    opacity: 0.92;
+}
+
+.pmx-position-list .ui-sortable-placeholder {
+    visibility: visible !important;
+    background: rgba(138, 180, 248, 0.18);
+    border: 1px dashed rgba(138, 180, 248, 0.6);
+    border-radius: 6px;
+}
+
+/* 手机端：列表更高、按钮更好点，按钮文字不换行 */
+@media (max-width: 720px) {
+    .pmx-position-list {
+        max-height: 52vh;
+    }
+    .pmx-here,
+    .pmx-group-insert {
+        padding: 4px 10px;
+        min-height: 30px;
+    }
+    .pmx-item,
+    .pmx-group-header {
+        padding: 8px 10px;
+    }
+}

@@ -1,0 +1,9 @@
+{
+  "display_name": "预设提示词移动/复制",
+  "version": "2.0.0",
+  "author": "miaccj9-maker",
+  "description": "仿世界书「移动/复制条目到其他世界书」：在 Chat Completion 提示词管理器中，把任意提示词移动/复制到其他预设，可选择目标预设、按分组选择插入位置（点击或拖拽），兼容柏宝箱与 preset-transfer 的预设分组，直接写入预设文件即时生效。轻量实现，无定时器、无轮询。",
+  "license": "MIT",
+  "js": "index.js",
+  "css": "style.css"
+}
