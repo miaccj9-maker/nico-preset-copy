@@ -15,6 +15,75 @@
     transform: scale(1.12);
 }
 
+/* ---------- 多选勾选框 ---------- */
+
+.pm-preset-pick {
+    cursor: pointer;
+    opacity: 0.55;
+    margin-right: 6px;
+    transition: opacity 0.15s ease, transform 0.15s ease, color 0.15s ease;
+}
+
+.pm-preset-pick:hover {
+    opacity: 1;
+    transform: scale(1.12);
+}
+
+.pm-preset-pick.pm-picked {
+    opacity: 1;
+    color: var(--SmartThemeQuoteColor, #8ab4f8);
+}
+
+/* 已勾选条目整行轻微高亮 */
+.pm-preset-pick.pm-picked {
+    filter: drop-shadow(0 0 3px rgba(138, 180, 248, 0.5));
+}
+
+/* ---------- 列表上方批量操作条 ---------- */
+
+.pmc-batch-bar {
+    display: none;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 6px 10px;
+    margin: 4px 0;
+    border-radius: 8px;
+    border: 1px solid var(--SmartThemeBorderColor, rgba(138, 180, 248, 0.4));
+    background: rgba(138, 180, 248, 0.12);
+}
+
+.pmc-batch-bar.pmc-batch-on {
+    display: flex;
+}
+
+.pmc-batch-count {
+    font-size: 0.85rem;
+    font-weight: 600;
+    margin-right: auto;
+    white-space: nowrap;
+}
+
+.pmc-batch-count b {
+    color: var(--SmartThemeQuoteColor, #8ab4f8);
+}
+
+.pmc-batch-bar .menu_button {
+    font-size: 0.78rem;
+    padding: 3px 10px;
+    border-radius: 6px;
+    margin: 0;
+    line-height: 1.5;
+    /* 空间不足时换行而非压缩文字（手机端） */
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+
+.pmc-batch-move,
+.pmc-batch-copy {
+    font-weight: 600;
+}
+
 /* ---------- 弹窗 ---------- */
 
 /* 手机端尽量铺满，桌面端跟随 Popup wide */
@@ -207,6 +276,33 @@
     background: rgba(138, 180, 248, 0.22);
 }
 
+/* 多锚点：序号徽章 */
+.pmx-anchor-no {
+    flex-shrink: 0;
+    width: 18px;
+    height: 18px;
+    line-height: 18px;
+    text-align: center;
+    font-size: 0.72rem;
+    font-weight: 700;
+    border-radius: 50%;
+    background: rgba(138, 180, 248, 0.25);
+    color: var(--SmartThemeQuoteColor, #8ab4f8);
+}
+
+/* 当前激活的锚点（「插此」作用于它）：加粗高亮 */
+.pmx-item.pmx-anchor.pmx-anchor-active {
+    border-style: solid;
+    border-color: var(--SmartThemeQuoteColor, #8ab4f8);
+    background: rgba(138, 180, 248, 0.26);
+    box-shadow: 0 0 0 1px var(--SmartThemeQuoteColor, #8ab4f8) inset;
+}
+
+/* 非激活锚点稍弱，便于区分 */
+.pmx-item.pmx-anchor:not(.pmx-anchor-active) {
+    opacity: 0.78;
+}
+
 /* sortable 拖拽状态 */
 .pmx-position-list .ui-sortable-helper {
     box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
@@ -233,5 +329,20 @@
     .pmx-item,
     .pmx-group-header {
         padding: 8px 10px;
+    }
+    .pmc-batch-bar {
+        gap: 6px;
+    }
+    .pmc-batch-bar .menu_button {
+        padding: 6px 10px;
+        min-height: 32px;
+    }
+    .pm-preset-pick,
+    .pm-preset-transfer-action {
+        min-width: 20px;
+        min-height: 20px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
     }
 }

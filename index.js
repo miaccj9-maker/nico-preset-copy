@@ -42,7 +42,11 @@ import { escapeHtml } from '/scripts/utils.js';
 const PM_CONTAINER_SEL = '#completion_prompt_manager';
 const PM_LIST_SEL = '#completion_prompt_manager_list';
 const BTN_CLASS = 'pm-preset-transfer-action';
+const PICK_CLASS = 'pm-preset-pick';
+const PICKED_CLASS = 'pm-picked';
+const BATCH_BAR_ID = 'pmc-batch-bar';
 const ANCHOR_CLASS = 'pmx-anchor';
+const ANCHOR_ACTIVE_CLASS = 'pmx-anchor-active';
 const POSITION_LIST_CLASS = 'pmx-position-list';
 const ITEM_CLASS = 'pmx-item';
 const GROUP_HEADER_CLASS = 'pmx-group-header';
@@ -265,11 +269,25 @@ function writeGroups(preset, model, finalGroups) {
 }
 
 // =====================================================================
-// 按钮注入
+// 多选状态 + 按钮注入
 // =====================================================================
 
+// 勾选集合（跨列表 render 保留，render 后由 injectButtons 恢复勾选态）
+const selectedIds = new Set();
+
 /**
- * 遍历当前提示词列表，为缺少按钮的可移动条目注入按钮（只做「补缺」）
+ * 按 selectedIds 同步单个勾选框的图标与高亮
+ */
+function syncPickState(pick, identifier) {
+    if (!pick || !identifier) return;
+    const on = selectedIds.has(identifier);
+    pick.classList.toggle('fa-square', !on);
+    pick.classList.toggle('fa-square-check', on);
+    pick.classList.toggle(PICKED_CLASS, on);
+}
+
+/**
+ * 遍历当前提示词列表，为缺少按钮/勾选框的可移动条目补缺注入
  */
 function injectButtons() {
     if (!promptManager) return;
@@ -278,20 +296,133 @@ function injectButtons() {
 
     const items = list.querySelectorAll('li[data-pm-identifier]');
     for (const li of items) {
-        if (li.querySelector(`.${BTN_CLASS}`)) continue;
-
         const identifier = li.dataset.pmIdentifier;
         const prompt = oai_settings.prompts?.find(p => p && p.identifier === identifier);
-        if (!isTransferable(prompt)) continue;
+        const transferable = isTransferable(prompt);
 
         const controls = li.querySelector('.prompt_manager_prompt_controls');
         if (!controls) continue;
 
+        // 多选勾选框（最左侧）
+        let pick = controls.querySelector(`.${PICK_CLASS}`);
+        if (!pick && transferable) {
+            pick = document.createElement('span');
+            pick.className = `${PICK_CLASS} fa-solid fa-square fa-xs`;
+            pick.title = '多选：勾选后可批量移动/复制到其他预设';
+            controls.prepend(pick);
+        }
+        syncPickState(pick, identifier);
+
+        // 单条移动/复制按钮
+        if (controls.querySelector(`.${BTN_CLASS}`) || !transferable) continue;
         const btn = document.createElement('span');
         btn.className = `${BTN_CLASS} fa-solid fa-right-left fa-xs`;
         btn.title = '移动/复制到其他预设';
         controls.prepend(btn);
     }
+
+    updateBatchBar();
+}
+
+/**
+ * 列表上方的批量操作条（幂等创建，未勾选时隐藏）
+ */
+function injectBatchBar() {
+    const list = document.querySelector(PM_LIST_SEL);
+    if (!list) return;
+    const parent = list.parentElement;
+    if (!parent || parent.querySelector(`#${BATCH_BAR_ID}`)) return;
+
+    const bar = document.createElement('div');
+    bar.id = BATCH_BAR_ID;
+    bar.className = 'pmc-batch-bar';
+    bar.innerHTML = `
+        <span class="pmc-batch-count">已选 <b class="pmc-batch-n">0</b> 个</span>
+        <button type="button" class="menu_button pmc-batch-all">全选可见</button>
+        <button type="button" class="menu_button pmc-batch-move">批量移动</button>
+        <button type="button" class="menu_button pmc-batch-copy">批量复制</button>
+        <button type="button" class="menu_button pmc-batch-clear">清空</button>
+    `;
+    parent.insertBefore(bar, list);
+
+    bar.addEventListener('click', (event) => {
+        if (event.target.closest('.pmc-batch-move')) openMultiTransferPopup();
+        else if (event.target.closest('.pmc-batch-copy')) openMultiTransferPopup();
+        else if (event.target.closest('.pmc-batch-clear')) clearSelection();
+        else if (event.target.closest('.pmc-batch-all')) {
+            // 可见条目已全部勾选时再点 = 清空
+            const list = document.querySelector(PM_LIST_SEL);
+            const visible = list ? [...list.querySelectorAll('li[data-pm-identifier]')].filter(li => {
+                const p = oai_settings.prompts?.find(x => x && x.identifier === li.dataset.pmIdentifier);
+                return isTransferable(p);
+            }) : [];
+            if (visible.length > 0 && visible.every(li => selectedIds.has(li.dataset.pmIdentifier))) {
+                clearSelection();
+            } else {
+                selectAllVisible();
+            }
+        }
+    });
+}
+
+/**
+ * 刷新批量条状态（严格幂等：显示值未变化时不写 DOM，
+ * 避免文本节点替换触发 MutationObserver 形成反馈循环）
+ */
+function updateBatchBar() {
+    const bar = document.querySelector(`#${BATCH_BAR_ID}`);
+    if (!bar) return;
+    const n = selectedIds.size;
+    if (bar.classList.contains('pmc-batch-on') !== (n > 0)) {
+        bar.classList.toggle('pmc-batch-on', n > 0);
+    }
+    const cnt = bar.querySelector('.pmc-batch-n');
+    if (cnt && cnt.textContent !== String(n)) cnt.textContent = String(n);
+}
+
+function clearSelection() {
+    selectedIds.clear();
+    document.querySelectorAll(`.${PICK_CLASS}`).forEach(pick =>
+        syncPickState(pick, pick.closest('li[data-pm-identifier]')?.dataset.pmIdentifier));
+    updateBatchBar();
+}
+
+function selectAllVisible() {
+    const list = document.querySelector(PM_LIST_SEL);
+    if (!list) return;
+    for (const li of list.querySelectorAll('li[data-pm-identifier]')) {
+        const id = li.dataset.pmIdentifier;
+        const p = oai_settings.prompts?.find(x => x && x.identifier === id);
+        if (isTransferable(p)) selectedIds.add(id);
+    }
+    document.querySelectorAll(`.${PICK_CLASS}`).forEach(pick =>
+        syncPickState(pick, pick.closest('li[data-pm-identifier]')?.dataset.pmIdentifier));
+    updateBatchBar();
+}
+
+/**
+ * 按当前列表可见顺序收集勾选的 identifier（折叠/搜索隐藏的勾选项追加在后）
+ */
+function getOrderedSelection() {
+    const ordered = [];
+    const list = document.querySelector(PM_LIST_SEL);
+    if (list) {
+        for (const li of list.querySelectorAll('li[data-pm-identifier]')) {
+            if (selectedIds.has(li.dataset.pmIdentifier)) ordered.push(li.dataset.pmIdentifier);
+        }
+    }
+    for (const id of selectedIds) {
+        if (!ordered.includes(id)) ordered.push(id);
+    }
+    return ordered;
+}
+
+function openMultiTransferPopup() {
+    if (selectedIds.size === 0) {
+        toastr.warning('请先勾选要移动/复制的条目。');
+        return;
+    }
+    openTransferPopup(getOrderedSelection());
 }
 
 // =====================================================================
@@ -299,9 +430,11 @@ function injectButtons() {
 // =====================================================================
 
 /**
- * 渲染目标预设的位置列表（分组区块 + 拖拽锚点 + 点击选位）
+ * 渲染目标预设的位置列表（分组区块 + 多个拖拽锚点 + 点击选位）
+ *
+ * @param {Array<{identifier:string, name:string}>} anchors 待插入条目（每个一个锚点）
  */
-function renderPositionList(wrap, targetName, movingName) {
+function renderPositionList(wrap, targetName, anchors) {
     const targetIndex = openai_setting_names[targetName];
     const target = openai_settings[targetIndex];
     if (!target) {
@@ -386,15 +519,20 @@ function renderPositionList(wrap, targetName, movingName) {
         }
     }
 
-    // 锚点行（默认末尾、未分组）
-    rowsHtml.push(`
-        <li class="${ITEM_CLASS} ${ANCHOR_CLASS}">
-            <span class="pmx-handle fa-solid fa-grip-vertical" title="拖动选择位置"></span>
-            <span class="pmx-anchor-icon fa-solid fa-map-pin"></span>
-            <span class="pmx-item-name">「${escapeHtml(movingName)}」插入到此处</span>
-            <span class="pmx-anchor-group"></span>
-        </li>
-    `);
+    // 锚点行：每个待插入条目一个（默认按源顺序堆叠在末尾、未分组），
+    // 第一个为激活态；点击锚点行切换激活，点「插此」作用于激活锚点
+    anchors.forEach((a, i) => {
+        rowsHtml.push(`
+            <li class="${ITEM_CLASS} ${ANCHOR_CLASS}${i === 0 ? ` ${ANCHOR_ACTIVE_CLASS}` : ''}"
+                data-anchor-source="${escapeHtml(a.identifier)}">
+                <span class="pmx-handle fa-solid fa-grip-vertical" title="拖动选择位置"></span>
+                <span class="pmx-anchor-no">${i + 1}</span>
+                <span class="pmx-anchor-icon fa-solid fa-map-pin"></span>
+                <span class="pmx-item-name">「${escapeHtml(a.name)}」插到此处</span>
+                <span class="pmx-anchor-group"></span>
+            </li>
+        `);
+    });
 
     // 游离条目（prompts 存在但未加入顺序），仅提示
     const orphanHtml = prompts
@@ -408,13 +546,16 @@ function renderPositionList(wrap, targetName, movingName) {
         `)
         .join('');
 
+    const hint = anchors.length > 1
+        ? '共 ' + anchors.length + ' 个锚点：点选某个锚点（高亮）后点「⤓ 插此」/「📌 插入本组」定位，'
+            + '也可直接拖动手柄；不同锚点可放到不同位置、不同分组。'
+        : '点击「⤓ 插此」或「📌 插入本组」选位，也可拖动 📌 锚点行；'
+            + '拖动条目可跨组移动，组归属按最终位置自动更新。';
+
     wrap.innerHTML = `
         <ul class="${POSITION_LIST_CLASS}">${rowsHtml.join('')}</ul>
         ${orphanHtml ? `<ul class="${POSITION_LIST_CLASS} pmx-orphan-list">${orphanHtml}</ul>` : ''}
-        <div class="pmx-hint">
-            点击「⤓ 插此」或「📌 插入本组」选位，也可拖动 📌 锚点行；
-            拖动条目可跨组移动，组归属按最终位置自动更新。
-        </div>
+        <div class="pmx-hint">${hint}</div>
     `;
 
     const mainList = wrap.querySelector(`ul.${POSITION_LIST_CLASS}`);
@@ -437,37 +578,39 @@ function renderPositionList(wrap, targetName, movingName) {
 
     // 点击选位（事件委托，一次绑定）
     // 锚点归组：向前找最近的组标题/结束行；先遇到标题=在组内，先遇到结束行=未分组
-    const refreshAnchorGroupLabel = () => {
-        const anchor = mainList.querySelector(`.${ANCHOR_CLASS}`);
-        if (!anchor) return;
-        let cur = anchor.previousElementSibling;
-        let gid = null;
-        while (cur) {
-            if (cur.classList.contains(GROUP_HEADER_CLASS)) { gid = cur.dataset.groupId; break; }
-            if (cur.classList.contains(GROUP_END_CLASS)) { gid = null; break; }
-            cur = cur.previousElementSibling;
-        }
-        anchor.dataset.anchorGroup = gid || '';
-        const label = anchor.querySelector('.pmx-anchor-group');
-        if (label) {
-            label.textContent = gid ? `归组：${metaById.get(gid)?.name || ''}` : '未分组';
+    const getActiveAnchor = () => mainList.querySelector(`.${ANCHOR_ACTIVE_CLASS}`)
+        || mainList.querySelector(`.${ANCHOR_CLASS}`);
+
+    const refreshAnchorGroupLabels = () => {
+        for (const anchor of mainList.querySelectorAll(`.${ANCHOR_CLASS}`)) {
+            let cur = anchor.previousElementSibling;
+            let gid = null;
+            while (cur) {
+                if (cur.classList.contains(GROUP_HEADER_CLASS)) { gid = cur.dataset.groupId; break; }
+                if (cur.classList.contains(GROUP_END_CLASS)) { gid = null; break; }
+                cur = cur.previousElementSibling;
+            }
+            anchor.dataset.anchorGroup = gid || '';
+            const label = anchor.querySelector('.pmx-anchor-group');
+            if (label) {
+                label.textContent = gid ? `归组：${metaById.get(gid)?.name || ''}` : '未分组';
+            }
         }
     };
 
     mainList.addEventListener('click', (event) => {
-        const anchor = mainList.querySelector(`.${ANCHOR_CLASS}`);
-        if (!anchor) return;
-
         const groupInsert = event.target.closest('.pmx-group-insert');
         if (groupInsert) {
             event.stopPropagation();
+            const anchor = getActiveAnchor();
+            if (!anchor) return;
             const hdr = groupInsert.closest(`.${GROUP_HEADER_CLASS}`);
             // 锚点移到本组结束行之前（组块末尾）
             const end = mainList.querySelector(
                 `.${GROUP_END_CLASS}[data-group-id="${CSS.escape(hdr.dataset.groupId)}"]`,
             );
             if (end) end.before(anchor); else mainList.appendChild(anchor);
-            refreshAnchorGroupLabel();
+            refreshAnchorGroupLabels();
             refreshGroupCounts();
             return;
         }
@@ -475,10 +618,21 @@ function renderPositionList(wrap, targetName, movingName) {
         const here = event.target.closest('.pmx-here');
         if (here) {
             event.stopPropagation();
+            const anchor = getActiveAnchor();
+            if (!anchor) return;
             const row = here.closest(`.${ITEM_CLASS}`);
             if (row && !row.classList.contains(ANCHOR_CLASS)) row.before(anchor);
-            refreshAnchorGroupLabel();
+            refreshAnchorGroupLabels();
             refreshGroupCounts();
+            return;
+        }
+
+        // 点击锚点行本身（非手柄拖拽区）→ 激活该锚点
+        const anchorClicked = event.target.closest(`.${ANCHOR_CLASS}`);
+        if (anchorClicked && !event.target.closest('.pmx-handle')) {
+            for (const a of mainList.querySelectorAll(`.${ANCHOR_CLASS}`)) {
+                a.classList.toggle(ANCHOR_ACTIVE_CLASS, a === anchorClicked);
+            }
         }
     });
 
@@ -495,30 +649,37 @@ function renderPositionList(wrap, targetName, movingName) {
         tolerance: 'pointer',
         delay: isMobile ? 120 : 0,
         update: () => {
-            refreshAnchorGroupLabel();
+            refreshAnchorGroupLabels();
             refreshGroupCounts();
         },
     });
 
     refreshGroupCounts();
-    refreshAnchorGroupLabel();
+    refreshAnchorGroupLabels();
     return model;
 }
 
 /**
- * 从弹窗 DOM 计算最终顺序与分组归属
+ * 从弹窗 DOM 计算最终顺序与分组归属（多锚点）
  *
- * @returns {{ orderedIds: string[], anchorIndex: number,
- *            finalGroups: Array<{id:string, name:string, members:string[]}> }}
+ * 输出统一的混合序列 slots：
+ *   { id: 目标预设已有 identifier } 或 { newFrom: 源 identifier }
+ * 组 members 同样为 slot 数组（同一对象引用），转移时统一映射。
+ *
+ * @returns {{ orderedIds: string[],
+ *            slots: Array<{id?:string, newFrom?:string}>,
+ *            anchors: Array<{sourceId:string, groupId:string}>,
+ *            finalGroups: Array<{id:string, name:string, members:Array}> }}
  */
 function collectPositionResult(wrap, model) {
     const mainList = wrap.querySelector(`ul.${POSITION_LIST_CLASS}`);
     const metaById = new Map(model.groups.map(g => [g.id, g]));
 
     const orderedIds = [];
+    const slots = [];
+    const anchors = [];
     const membersByGroup = new Map();
     let currentGroupId = null;
-    let anchorIndex = null;
     const groupOrder = [];
 
     for (const li of mainList.children) {
@@ -534,16 +695,25 @@ function collectPositionResult(wrap, model) {
             continue;
         }
         if (li.classList.contains(ANCHOR_CLASS)) {
-            anchorIndex = orderedIds.length;
+            const sourceId = li.dataset.anchorSource;
             li.dataset.anchorGroup = currentGroupId || '';
+            const slot = { newFrom: sourceId };
+            slots.push(slot);
+            anchors.push({ sourceId, groupId: currentGroupId || '' });
+            if (currentGroupId) {
+                if (!membersByGroup.has(currentGroupId)) membersByGroup.set(currentGroupId, []);
+                membersByGroup.get(currentGroupId).push(slot);
+            }
             continue;
         }
         const pid = li.dataset.pmPid;
         if (!pid) continue;
         orderedIds.push(pid);
+        const slot = { id: pid };
+        slots.push(slot);
         if (currentGroupId) {
             if (!membersByGroup.has(currentGroupId)) membersByGroup.set(currentGroupId, []);
-            membersByGroup.get(currentGroupId).push(pid);
+            membersByGroup.get(currentGroupId).push(slot);
         }
     }
 
@@ -554,16 +724,27 @@ function collectPositionResult(wrap, model) {
         members: membersByGroup.get(id) || [],
     }));
 
-    if (anchorIndex === null) anchorIndex = orderedIds.length;
-    return { orderedIds, anchorIndex, finalGroups, anchorGroupId: mainList.querySelector(`.${ANCHOR_CLASS}`)?.dataset.anchorGroup || '' };
+    return { orderedIds, slots, anchors, finalGroups };
 }
 
 /**
- * 打开移动/复制弹窗
+ * 打开移动/复制弹窗（单条或多条）
+ * @param {string|string[]} identifierOrList
  */
-async function openTransferPopup(identifier) {
-    const sourcePrompt = oai_settings.prompts?.find(p => p && p.identifier === identifier);
-    if (!sourcePrompt || !isTransferable(sourcePrompt)) return;
+async function openTransferPopup(identifierOrList) {
+    const identifiers = Array.isArray(identifierOrList)
+        ? identifierOrList
+        : [identifierOrList];
+    const sourcePrompts = identifiers
+        .map(id => oai_settings.prompts?.find(p => p && p.identifier === id))
+        .filter(p => p && isTransferable(p));
+    if (sourcePrompts.length === 0) return;
+
+    // 锚点清单（深拷贝在转移时进行，这里只读名称）
+    const anchorItems = sourcePrompts.map(p => ({
+        identifier: p.identifier,
+        name: p.name || p.identifier,
+    }));
 
     const currentPresetName = oai_settings.preset_settings_openai;
     const targetNames = Object.keys(openai_setting_names).filter(n => n !== currentPresetName);
@@ -577,7 +758,9 @@ async function openTransferPopup(identifier) {
 
     const title = document.createElement('div');
     title.className = 'pmx-popup-title';
-    title.innerHTML = `移动/复制「<b>${escapeHtml(sourcePrompt.name || identifier)}</b>」到：`;
+    title.innerHTML = anchorItems.length === 1
+        ? `移动/复制「<b>${escapeHtml(anchorItems[0].name)}</b>」到：`
+        : `移动/复制选中的 <b>${anchorItems.length}</b> 个条目到：`;
     container.appendChild(title);
 
     const select = document.createElement('select');
@@ -606,7 +789,7 @@ async function openTransferPopup(identifier) {
     // 保存当前目标预设的分组模型（切换目标时重建）
     let currentModel = { format: null, groups: [] };
     const renderPositions = () => {
-        currentModel = renderPositionList(positionWrap, select.value, sourcePrompt.name || identifier)
+        currentModel = renderPositionList(positionWrap, select.value, anchorItems)
             || { format: null, groups: [] };
     };
     select.addEventListener('change', renderPositions);
@@ -655,7 +838,7 @@ async function openTransferPopup(identifier) {
 
     const move = result === POPUP_RESULT.CUSTOM1;
     try {
-        await transferPrompt(identifier, targetName, currentModel, positionResult, move);
+        await transferPrompts(identifiers, targetName, currentModel, positionResult, move);
     } catch (err) {
         console.error('[preset-move-copy]', err);
         toastr.error(err?.message || '移动/复制失败。');
@@ -666,90 +849,86 @@ async function openTransferPopup(identifier) {
 // 核心：移动 / 复制
 // =====================================================================
 
-async function transferPrompt(sourceIdentifier, targetName, model, positionResult, move) {
-    const { orderedIds, anchorIndex, finalGroups, anchorGroupId } = positionResult;
+/**
+ * 批量移动/复制（单条是多条的特例）
+ *
+ * @param {string[]} sourceIdentifiers 源条目 identifier 列表
+ * @param {string} targetName 目标预设名
+ * @param {object} model 目标预设 readGroups 模型
+ * @param {object} positionResult collectPositionResult 输出（多锚点混合序列）
+ * @param {boolean} move true=移动（源删除），false=复制
+ */
+async function transferPrompts(sourceIdentifiers, targetName, model, positionResult, move) {
+    const { orderedIds, slots, finalGroups } = positionResult;
     const targetIndex = openai_setting_names[targetName];
     if (targetIndex === undefined) throw new Error(`找不到目标预设「${targetName}」。`);
 
     const sourcePresetName = oai_settings.preset_settings_openai;
-    const sourcePrompt = oai_settings.prompts.find(p => p && p.identifier === sourceIdentifier);
-    if (!sourcePrompt) throw new Error('源提示词不存在。');
+    const sourceSet = new Set(sourceIdentifiers);
+    const sourcePrompts = sourceIdentifiers
+        .map(id => oai_settings.prompts.find(p => p && p.identifier === id))
+        .filter(Boolean);
+    if (sourcePrompts.length === 0) throw new Error('源提示词不存在。');
 
     // 深拷贝目标预设（内存缓存 → 改写 → 整体写回，保留目标预设全部字段）
     const targetPreset = structuredClone(openai_settings[targetIndex]);
     if (!Array.isArray(targetPreset.prompts)) targetPreset.prompts = [];
 
-    // 深拷贝待转移提示词，并处理 identifier 冲突
-    const movedPrompt = structuredClone(sourcePrompt);
-    const existingIds = new Set(targetPreset.prompts.map(p => p && p.identifier));
-    let renamed = false;
-    if (existingIds.has(movedPrompt.identifier)) {
-        movedPrompt.identifier = makeUniqueIdentifier(movedPrompt.identifier, existingIds);
-        renamed = true;
-    }
-    targetPreset.prompts.push(movedPrompt);
-
     // 源条目在当前预设中的启用状态
     const sourceOrder = getGlobalOrder(oai_settings);
-    const sourceRef = sourceOrder.find(r => r.identifier === sourceIdentifier);
-    const movedEnabled = sourceRef ? !!sourceRef.enabled : false;
+    const enabledMap = new Map();
+    for (const id of sourceIdentifiers) {
+        const ref = sourceOrder.find(r => r.identifier === id);
+        enabledMap.set(id, ref ? !!ref.enabled : false);
+    }
 
-    // 按弹窗顺序重建全局 order，并在锚点处插入新条目
+    // 深拷贝每个待转移条目，处理 identifier 冲突；建立 sourceId → 新 id 映射
+    const newIdMap = new Map();
+    const renamedCount = { n: 0 };
+    const existingIds = new Set(targetPreset.prompts.map(p => p && p.identifier));
+    for (const sp of sourcePrompts) {
+        const moved = structuredClone(sp);
+        if (existingIds.has(moved.identifier)) {
+            moved.identifier = makeUniqueIdentifier(moved.identifier, existingIds);
+            renamedCount.n++;
+        }
+        existingIds.add(moved.identifier);
+        newIdMap.set(sp.identifier, moved.identifier);
+        targetPreset.prompts.push(moved);
+    }
+
+    // 按混合序列一次重建全局 order
     const targetOrder = getGlobalOrder(targetPreset);
     const oldRefMap = new Map(targetOrder.map(r => [r.identifier, r]));
-    const rebuilt = [];
-    orderedIds.forEach((id, i) => {
-        if (i === anchorIndex) rebuilt.push({ identifier: movedPrompt.identifier, enabled: movedEnabled });
-        rebuilt.push(oldRefMap.get(id) ?? { identifier: id, enabled: false });
+    const rebuilt = slots.map((s) => {
+        if (s.newFrom !== undefined) {
+            return { identifier: newIdMap.get(s.newFrom), enabled: enabledMap.get(s.newFrom) ?? false };
+        }
+        return oldRefMap.get(s.id) ?? { identifier: s.id, enabled: false };
     });
-    if (anchorIndex >= orderedIds.length) {
-        rebuilt.push({ identifier: movedPrompt.identifier, enabled: movedEnabled });
-    }
     // 保留未在排序列表中展示的悬空引用（数据不丢）
     for (const ref of targetOrder) {
-        if (!orderedIds.includes(ref.identifier) && ref.identifier !== movedPrompt.identifier) rebuilt.push(ref);
+        if (!orderedIds.includes(ref.identifier)) rebuilt.push(ref);
     }
     const orderEntry = targetPreset.prompt_order.find(
         l => String(l.character_id) === String(getDummyId()),
     );
     orderEntry.order = rebuilt;
 
-    // 重建分组数据：把新条目加入锚点所在组（锚点位置 = 锚点前一条目之后；
-    // 锚点若在组内，需要把新 id 插到该组 members 的正确位置）
+    // 重建分组数据：members 中的锚点占位映射为新 id；原组悬空成员补回组末
     if (model.format) {
-        const groupsWithNew = finalGroups.map(g => ({ id: g.id, name: g.name, members: [...g.members] }));
-
-        // 数据安全：弹窗只展示在全局 order 中存在的成员，原组数据里若引用了
-        // 未在列表展示的条目（悬空/游离），原样保留在组末，不丢失引用
         const visibleIds = new Set(orderedIds);
-        for (const g of groupsWithNew) {
+        const groupsWithNew = finalGroups.map((g) => {
+            const memberIds = g.members.map((s) =>
+                (s.newFrom !== undefined ? newIdMap.get(s.newFrom) : s.id));
             const orig = model.groups.find(x => x.id === g.id);
-            if (!orig) continue;
-            for (const id of orig.members) {
-                if (!visibleIds.has(id) && !g.members.includes(id)) g.members.push(id);
-            }
-        }
-
-        if (anchorGroupId) {
-            const g = groupsWithNew.find(x => x.id === anchorGroupId);
-            if (g) {
-                // 锚点前的条目即插入位置参照；members 与 DOM 顺序一致，
-                // 锚点之前、本组最后一个成员的位置
-                const beforeIds = orderedIds.slice(0, anchorIndex);
-                let insertAt = g.members.length;
-                for (let i = beforeIds.length - 1; i >= 0; i--) {
-                    const idx = g.members.indexOf(beforeIds[i]);
-                    if (idx !== -1) { insertAt = idx + 1; break; }
+            if (orig) {
+                for (const id of orig.members) {
+                    if (!visibleIds.has(id) && !memberIds.includes(id)) memberIds.push(id);
                 }
-                // 若锚点前面没有本组成员（拖到组首），插到 0
-                if (insertAt === g.members.length) {
-                    const afterIds = orderedIds.slice(anchorIndex);
-                    const firstInGroup = afterIds.find(id => g.members.includes(id));
-                    if (firstInGroup !== undefined) insertAt = g.members.indexOf(firstInGroup);
-                }
-                g.members.splice(insertAt, 0, movedPrompt.identifier);
             }
-        }
+            return { id: g.id, name: g.name, members: memberIds };
+        });
         writeGroups(targetPreset, model, groupsWithNew);
     }
 
@@ -758,21 +937,27 @@ async function transferPrompt(sourceIdentifier, targetName, model, positionResul
     openai_settings[targetIndex] = targetPreset;
 
     if (move) {
-        // 从当前预设的 prompts 中移除
-        const promptIdx = oai_settings.prompts.findIndex(p => p && p.identifier === sourceIdentifier);
-        if (promptIdx !== -1) oai_settings.prompts.splice(promptIdx, 1);
+        // 批量从当前预设的 prompts 中移除
+        for (const id of sourceIdentifiers) {
+            const idx = oai_settings.prompts.findIndex(p => p && p.identifier === id);
+            if (idx !== -1) oai_settings.prompts.splice(idx, 1);
+        }
         // 从所有顺序列表中移除引用
         for (const list of oai_settings.prompt_order || []) {
             if (!Array.isArray(list.order)) continue;
             for (let i = list.order.length - 1; i >= 0; i--) {
-                if (list.order[i]?.identifier === sourceIdentifier) list.order.splice(i, 1);
+                if (sourceSet.has(list.order[i]?.identifier)) list.order.splice(i, 1);
             }
         }
-        // 清理源预设分组中对该条目的引用
+        // 批量清理源预设分组中对这些条目的引用
         const sourceModel = readGroups(oai_settings);
         if (sourceModel.format) {
             const sourceFinal = sourceModel.groups
-                .map(g => ({ id: g.id, name: g.name, members: g.members.filter(id => id !== sourceIdentifier) }));
+                .map(g => ({
+                    id: g.id,
+                    name: g.name,
+                    members: g.members.filter(id => !sourceSet.has(id)),
+                }));
             writeGroups(oai_settings, sourceModel, sourceFinal);
         }
 
@@ -784,12 +969,16 @@ async function transferPrompt(sourceIdentifier, targetName, model, positionResul
 
         saveSettingsDebounced();
         promptManager?.render();
-        const suffix = renamed ? '（目标预设已存在同名条目，已自动改名）' : '';
-        toastr.success(`已将「${sourcePrompt.name || sourceIdentifier}」移动到预设「${targetName}」。${suffix}`);
-    } else {
-        const suffix = renamed ? '（目标预设已存在同名条目，已自动改名）' : '';
-        toastr.success(`已将「${sourcePrompt.name || sourceIdentifier}」复制到预设「${targetName}」。${suffix}`);
     }
+
+    clearSelection();
+
+    const label = sourcePrompts.length === 1
+        ? `「${sourcePrompts[0].name || sourceIdentifiers[0]}」`
+        : `${sourcePrompts.length} 个条目`;
+    const suffix = renamedCount.n ? `（${renamedCount.n} 个同名条目已自动改名）` : '';
+    const verb = move ? '移动' : '复制';
+    toastr.success(`已将${label}${verb}到预设「${targetName}」。${suffix}`);
 }
 
 // =====================================================================
@@ -807,6 +996,21 @@ function init() {
 
     // 事件委托：只绑一次
     container.addEventListener('click', (event) => {
+        // 多选勾选框
+        const pick = event.target.closest(`.${PICK_CLASS}`);
+        if (pick) {
+            event.stopPropagation();
+            const li = pick.closest('li[data-pm-identifier]');
+            if (!li) return;
+            const id = li.dataset.pmIdentifier;
+            if (selectedIds.has(id)) selectedIds.delete(id);
+            else selectedIds.add(id);
+            syncPickState(pick, id);
+            updateBatchBar();
+            return;
+        }
+
+        // 单条移动/复制按钮
         const btn = event.target.closest(`.${BTN_CLASS}`);
         if (!btn) return;
         event.stopPropagation();
@@ -816,11 +1020,15 @@ function init() {
     });
 
     // 监听列表重建（每次 render 会清空重建），仅做按钮补缺
-    const observer = new MutationObserver(() => injectButtons());
+    const observer = new MutationObserver(() => {
+        injectBatchBar();
+        injectButtons();
+    });
     observer.observe(container, { childList: true, subtree: true });
 
+    injectBatchBar();
     injectButtons();
-    console.log('[preset-move-copy] 预设提示词移动/复制已加载（含分组支持）。');
+    console.log('[preset-move-copy] 预设提示词移动/复制已加载（含多选、分组支持）。');
 }
 
 // 幂等守卫：data/extensions 与 third-party 虚拟路径可能导致模块被执行两次，
